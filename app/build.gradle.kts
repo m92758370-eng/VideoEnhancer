@@ -47,5 +47,5 @@ dependencies {
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.activity:activity-ktx:1.8.2")
-    implementation("com.antonkarpenko:ffmpeg-kit-full-gpl:2.1.0")
+    implementation("io.github.xch168:ffmpeg-kit-full-gpl:1.0.2")
 }
