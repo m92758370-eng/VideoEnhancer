@@ -10,20 +10,30 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import com.arthenica.ffmpegkit.FFmpegKit
-import com.arthenica.ffmpegkit.ReturnCode
+import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.Contrast
+import androidx.media3.effect.ScaleAndRotateTransformation
+import androidx.media3.transformer.Composition
+import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.Effects
+import androidx.media3.transformer.ExportException
+import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.Transformer
 import java.io.File
-import java.io.FileOutputStream
 
+@UnstableApi
 class EnhanceQualityActivity : AppCompatActivity() {
 
     private lateinit var txtStatus: TextView
     private lateinit var progressBar: ProgressBar
-    private var selectedInputFile: File? = null
+    private var selectedUri: Uri? = null
+    private lateinit var transformer: Transformer
 
     private val pickVideoLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
-            copyUriToFile(uri)
+            selectedUri = uri
+            txtStatus.text = "ویدیو انتخاب شد"
         }
     }
 
@@ -40,51 +50,51 @@ class EnhanceQualityActivity : AppCompatActivity() {
         }
 
         findViewById<Button>(R.id.btnStartProcess).setOnClickListener {
-            val input = selectedInputFile
-            if (input == null) {
+            val uri = selectedUri
+            if (uri == null) {
                 Toast.makeText(this, "اول یه ویدیو انتخاب کن", Toast.LENGTH_SHORT).show()
             } else {
-                startProcessing(input)
+                startProcessing(uri)
             }
         }
     }
 
-    private fun copyUriToFile(uri: Uri) {
-        try {
-            val inputStream = contentResolver.openInputStream(uri) ?: return
-            val tempFile = File(cacheDir, "input_video.mp4")
-            val outputStream = FileOutputStream(tempFile)
-            inputStream.copyTo(outputStream)
-            inputStream.close()
-            outputStream.close()
-            selectedInputFile = tempFile
-            txtStatus.text = "ویدیو انتخاب شد: ${tempFile.length() / 1024} کیلوبایت"
-        } catch (e: Exception) {
-            Toast.makeText(this, "خطا در بارگذاری ویدیو", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun startProcessing(input: File) {
+    private fun startProcessing(uri: Uri) {
         val outputDir = getExternalFilesDir(Environment.DIRECTORY_MOVIES)
         val outputFile = File(outputDir, "enhanced_${System.currentTimeMillis()}.mp4")
-
-        val filter = "hqdn3d=4:3:6:4,unsharp=5:5:1.0:5:5:0.0,scale=iw*1.5:ih*1.5:flags=lanczos"
-        val command = "-y -i \"${input.absolutePath}\" -vf \"$filter\" -c:v libx264 -preset medium -crf 20 -c:a aac -b:a 128k \"${outputFile.absolutePath}\""
 
         progressBar.visibility = View.VISIBLE
         txtStatus.text = "در حال پردازش..."
 
-        FFmpegKit.executeAsync(command) { session ->
-            runOnUiThread {
-                progressBar.visibility = View.GONE
-                if (ReturnCode.isSuccess(session.returnCode)) {
-                    txtStatus.text = "پردازش تمام شد:\n${outputFile.absolutePath}"
-                    Toast.makeText(this, "ویدیو با کیفیت بهتر ذخیره شد", Toast.LENGTH_LONG).show()
-                } else {
-                    txtStatus.text = "پردازش ناموفق بود"
-                    Toast.makeText(this, "خطا در پردازش ویدیو", Toast.LENGTH_LONG).show()
+        val videoEffects = listOf(
+            ScaleAndRotateTransformation.Builder().setScale(1.5f, 1.5f).build(),
+            Contrast(0.1f)
+        )
+
+        val editedMediaItem = EditedMediaItem.Builder(MediaItem.fromUri(uri))
+            .setEffects(Effects(emptyList(), videoEffects))
+            .build()
+
+        transformer = Transformer.Builder(this)
+            .addListener(object : Transformer.Listener {
+                override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                    runOnUiThread {
+                        progressBar.visibility = View.GONE
+                        txtStatus.text = "پردازش تمام شد:\n${outputFile.absolutePath}"
+                        Toast.makeText(this@EnhanceQualityActivity, "ویدیو با کیفیت بهتر ذخیره شد", Toast.LENGTH_LONG).show()
+                    }
                 }
-            }
-        }
+
+                override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
+                    runOnUiThread {
+                        progressBar.visibility = View.GONE
+                        txtStatus.text = "پردازش ناموفق بود"
+                        Toast.makeText(this@EnhanceQualityActivity, "خطا: ${exportException.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            })
+            .build()
+
+        transformer.start(editedMediaItem, outputFile.absolutePath)
     }
 }
